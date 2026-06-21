@@ -172,7 +172,7 @@ describe("CodexAppServerController", () => {
     let snapshot: LocalSessionSnapshot = {
       thread: {
         id: "local_current",
-        title: "Local: codey",
+        title: "Local: Codexring",
         preview: "codex desktop",
         statusType: "localSession",
         updatedAt: updatedAtMs

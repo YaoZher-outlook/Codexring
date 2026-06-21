@@ -3,11 +3,22 @@ import type { WidgetApi, WidgetState } from "../shared/widgetTypes";
 
 const api: WidgetApi = {
   onStateChanged(listener: (state: WidgetState) => void) {
-    const wrapped = (_event: Electron.IpcRendererEvent, state: WidgetState) => listener(state);
+    let lastRevision = -1;
+    let disposed = false;
+    const deliver = (state: WidgetState) => {
+      if (disposed || state.revision <= lastRevision) {
+        return;
+      }
+
+      lastRevision = state.revision;
+      listener(state);
+    };
+    const wrapped = (_event: Electron.IpcRendererEvent, state: WidgetState) => deliver(state);
     ipcRenderer.on("widget:state", wrapped);
-    void ipcRenderer.invoke("widget:getState").then((state: WidgetState) => listener(state));
+    void ipcRenderer.invoke("widget:getState").then((state: WidgetState) => deliver(state));
 
     return () => {
+      disposed = true;
       ipcRenderer.removeListener("widget:state", wrapped);
     };
   },

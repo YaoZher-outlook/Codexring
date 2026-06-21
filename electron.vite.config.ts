@@ -42,7 +42,7 @@ export default defineConfig({
 });
 
 function readRendererPort(): number {
-  const value = Number(process.env.CODEX_WIDGET_PORT ?? 28473);
+  const value = Number(process.env.CODEXRING_RENDERER_PORT ?? 28473);
   if (!Number.isInteger(value) || value < 20_000 || value > 39_999) {
     return 28473;
   }

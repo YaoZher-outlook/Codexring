@@ -5,7 +5,7 @@ import { createInitialWidgetState, ringLabel } from "../../main/codex/state";
 type Language = "zh" | "en";
 type BarContent = "remaining" | "used" | "both";
 type RingVisualState = RingState | "limitExceeded" | "limitReset";
-type RingEvent = "calm" | "split" | "droplet" | "reverse" | "stretch";
+type RingTransition = "none" | "jump" | "flash" | "burst" | "hop" | "settle" | "alert" | "reconnect";
 
 interface WidgetSettings {
   language: Language;
@@ -34,8 +34,8 @@ interface WidgetSettings {
   };
 }
 
-const SETTINGS_KEY = "codey:settings:v1";
-const LEGACY_SETTINGS_KEY = "codex-floating-status-pet:settings:v1";
+const SETTINGS_KEY = "codexring:settings:v1";
+const LEGACY_SETTINGS_KEYS = ["codey:settings:v1", "codex-floating-status-pet:settings:v1"];
 const WIDGET_SIZE = { width: 176, height: 72 };
 const COMPACT_WIDGET_SIZE = { width: 66, height: 66 };
 
@@ -145,14 +145,17 @@ export function App(): JSX.Element {
   const [settings, setSettings] = useState<WidgetSettings>(() => loadSettings());
   const [isSettingsView] = useState(() => isSettingsRoute());
   const [notice, setNotice] = useState<string | null>(null);
-  const [ringEvent, setRingEvent] = useState<RingEvent>("calm");
+  const [ringTransition, setRingTransition] = useState<RingTransition>("none");
+  const [ringTransitionRevision, setRingTransitionRevision] = useState(0);
   const [limitResetPulse, setLimitResetPulse] = useState(false);
   const shellRef = useRef<HTMLElement | null>(null);
   const draggingRef = useRef(false);
   const mousePassthroughRef = useRef<boolean | null>(null);
   const remoteSettingsRef = useRef(false);
   const previousLimitsRef = useRef<WidgetState["limits"] | null>(null);
+  const previousRingVisualRef = useRef<RingVisualState | null>(null);
   const limitResetTimerRef = useRef<number | undefined>(undefined);
+  const ringTransitionTimerRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     if (!window.codexWidget) {
@@ -319,38 +322,21 @@ export function App(): JSX.Element {
   }, [limitResetPulse, state.limits.fiveHour.reached, state.limits.weekly.reached, state.ring]);
 
   useEffect(() => {
-    let startTimer: number | undefined;
-    let endTimer: number | undefined;
-    let disposed = false;
+    const previous = previousRingVisualRef.current;
+    previousRingVisualRef.current = ringVisual;
+    if (previous === null || previous === ringVisual) {
+      return;
+    }
 
-    const schedule = () => {
-      startTimer = window.setTimeout(() => {
-        if (disposed) {
-          return;
-        }
-
-        const nextEvent = pickRingEvent(ringVisual);
-        setRingEvent(nextEvent);
-        endTimer = window.setTimeout(() => {
-          if (disposed) {
-            return;
-          }
-
-          setRingEvent("calm");
-          schedule();
-        }, nextRingEventDuration(ringVisual, nextEvent));
-      }, nextRingEventDelay(ringVisual));
-    };
-
-    setRingEvent("calm");
-    schedule();
-
-    return () => {
-      disposed = true;
-      window.clearTimeout(startTimer);
-      window.clearTimeout(endTimer);
-    };
+    window.clearTimeout(ringTransitionTimerRef.current);
+    setRingTransition(transitionForRing(ringVisual));
+    setRingTransitionRevision((revision) => revision + 1);
+    ringTransitionTimerRef.current = window.setTimeout(() => setRingTransition("none"), 720);
   }, [ringVisual]);
+
+  useEffect(() => {
+    return () => window.clearTimeout(ringTransitionTimerRef.current);
+  }, []);
 
   const ringTitle = useMemo(() => visualRingLabel(ringVisual, settings.language), [ringVisual, settings.language]);
   const vars = useMemo(() => settingsToCssVars(settings), [settings]);
@@ -395,7 +381,12 @@ export function App(): JSX.Element {
       ) : (
         <>
           <section className="ring-zone" aria-label={ringTitle}>
-            <StatusRing ring={ringVisual} ringEvent={ringEvent} title={ringTitle} />
+            <StatusRing
+              key={`${ringVisual}-${ringTransitionRevision}`}
+              ring={ringVisual}
+              transition={ringTransition}
+              title={ringTitle}
+            />
           </section>
           {settings.bars.visible ? (
             <section className="bars-zone" aria-label="Codex usage limits">
@@ -414,16 +405,16 @@ export function App(): JSX.Element {
 
 function StatusRing({
   ring,
-  ringEvent,
+  transition,
   title
 }: {
   ring: RingVisualState;
-  ringEvent: RingEvent;
+  transition: RingTransition;
   title: string;
 }): JSX.Element {
   return (
     <svg
-      className={`status-ring status-ring-${ring} ring-event-${ringEvent}`}
+      className={`status-ring status-ring-${ring} status-ring-transition-${transition}`}
       viewBox="0 0 48 48"
       role="img"
       aria-label={title}
@@ -660,7 +651,9 @@ function isSettingsRoute(): boolean {
 
 function loadSettings(): WidgetSettings {
   try {
-    const raw = window.localStorage.getItem(SETTINGS_KEY) ?? window.localStorage.getItem(LEGACY_SETTINGS_KEY);
+    const raw =
+      window.localStorage.getItem(SETTINGS_KEY) ??
+      LEGACY_SETTINGS_KEYS.map((key) => window.localStorage.getItem(key)).find((value) => value !== null);
     if (!raw) {
       return defaultSettings;
     }
@@ -776,47 +769,26 @@ function contrastTextForBackground(
   };
 }
 
-function pickRingEvent(ring: RingVisualState): RingEvent {
-  if (ring === "creating" || ring === "reviewReady") {
-    return "calm";
+function transitionForRing(ring: RingVisualState): RingTransition {
+  switch (ring) {
+    case "creating":
+      return "jump";
+    case "thinking":
+    case "reviewReady":
+      return "flash";
+    case "working":
+    case "limitReset":
+      return "burst";
+    case "waitingApproval":
+      return "hop";
+    case "failed":
+    case "limitExceeded":
+      return "alert";
+    case "reconnecting":
+      return "reconnect";
+    case "idle":
+      return "settle";
   }
-
-  const activeEvents: RingEvent[] = ["split", "droplet", "reverse", "stretch", "droplet"];
-  const calmEvents: RingEvent[] = ["stretch", "droplet", "reverse", "split"];
-  const dangerEvents: RingEvent[] = ["stretch", "split", "droplet"];
-  const pool =
-    ring === "thinking" || ring === "working"
-      ? activeEvents
-      : ring === "failed" || ring === "limitExceeded" || ring === "reconnecting"
-        ? dangerEvents
-        : calmEvents;
-
-  return pool[Math.floor(Math.random() * pool.length)] ?? "stretch";
-}
-
-function nextRingEventDelay(ring: RingVisualState): number {
-  if (ring === "creating" || ring === "reviewReady") {
-    return randomBetween(20_000, 28_000);
-  }
-
-  if (ring === "thinking" || ring === "working") {
-    return randomBetween(2600, 6200);
-  }
-
-  if (ring === "waitingApproval") {
-    return randomBetween(3800, 7800);
-  }
-
-  return randomBetween(6500, 14000);
-}
-
-function nextRingEventDuration(ring: RingVisualState, event: RingEvent): number {
-  const base = ring === "thinking" || ring === "working" ? randomBetween(1700, 3300) : randomBetween(1500, 2800);
-  return event === "split" ? base + 350 : base;
-}
-
-function randomBetween(min: number, max: number): number {
-  return Math.round(min + Math.random() * (max - min));
 }
 
 function connectionNotice(state: WidgetState, language: Language): string | null {

@@ -302,43 +302,32 @@ select {
   animation: ring-reset-drop 3.2s ease-in-out both;
 }
 
-.status-ring.ring-event-split .status-ring-main {
-  animation: ring-event-split 2.9s cubic-bezier(0.46, 0.02, 0.23, 1) both;
+.status-ring-transition-jump .status-ring-surface {
+  animation: ring-transition-jump 620ms cubic-bezier(0.2, 1.35, 0.4, 1) both;
 }
 
-.status-ring.ring-event-reverse .status-ring-main {
-  animation: ring-event-reverse 2.6s ease-in-out both;
+.status-ring-transition-flash .status-ring-surface {
+  animation: ring-transition-flash 560ms steps(2, end) both;
 }
 
-.status-ring.ring-event-stretch .status-ring-main {
-  animation: ring-event-stretch 2.4s ease-in-out both;
+.status-ring-transition-burst .status-ring-surface {
+  animation: ring-transition-burst 620ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-.status-ring.ring-event-droplet .status-ring-drop-a,
-.status-ring.ring-event-split .status-ring-drop-a {
-  animation: ring-drop-a 2.4s ease-in-out both;
+.status-ring-transition-hop .status-ring-surface {
+  animation: ring-transition-hop 680ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
 
-.status-ring.ring-event-droplet .status-ring-drop-b,
-.status-ring.ring-event-split .status-ring-drop-b {
-  animation: ring-drop-b 2.4s ease-in-out both;
+.status-ring-transition-settle .status-ring-surface {
+  animation: ring-transition-settle 620ms ease-out both;
 }
 
-.status-ring.ring-event-droplet .status-ring-main {
-  animation: ring-event-droplet 2.2s ease-in-out both;
+.status-ring-transition-alert .status-ring-surface {
+  animation: ring-transition-alert 560ms steps(2, end) both;
 }
 
-.status-ring.ring-event-split .status-ring-drop-a,
-.status-ring.ring-event-split .status-ring-drop-b {
-  animation-duration: 2.9s;
-}
-
-.status-ring.ring-event-reverse .status-ring-drop-a {
-  animation: ring-drop-a 2.6s ease-in-out both reverse;
-}
-
-.status-ring.ring-event-reverse .status-ring-drop-b {
-  animation: ring-drop-b 2.6s ease-in-out both reverse;
+.status-ring-transition-reconnect .status-ring-surface {
+  animation: ring-transition-reconnect 680ms ease-in-out both;
 }
 
 .bars-zone {
@@ -1615,125 +1604,56 @@ legend {
   }
 }
 
-@keyframes ring-event-split {
-  0%,
-  100% {
-    stroke-dasharray: 102 5;
-    stroke-dashoffset: 0;
-    transform: rotate(0deg) scale(1);
-  }
-
-  28% {
-    stroke-dasharray: 70 7 29 1;
-    stroke-dashoffset: -12;
-    transform: rotate(72deg) scale(1.03);
-  }
-
-  56% {
-    stroke-dasharray: 47 8 47 5;
-    stroke-dashoffset: -26;
-    transform: rotate(146deg) scale(0.98);
-  }
-
-  78% {
-    stroke-dasharray: 91 5 11 0;
-    stroke-dashoffset: -34;
-    transform: rotate(196deg) scale(1.02);
-  }
+@keyframes ring-transition-jump {
+  0% { opacity: 0.45; transform: translateY(5px) scale(0.68); }
+  42% { opacity: 1; transform: translateY(-4px) scale(1.24); }
+  72% { transform: translateY(1px) scale(0.94); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-@keyframes ring-event-reverse {
-  0%,
-  100% {
-    stroke-dasharray: 102 5;
-    stroke-dashoffset: 0;
-    transform: rotate(0deg) scale(1);
-  }
-
-  34% {
-    stroke-dasharray: 98 9;
-    stroke-dashoffset: -8;
-    transform: rotate(-118deg) scale(1.025);
-  }
-
-  64% {
-    stroke-dasharray: 84 6 17 0;
-    stroke-dashoffset: -22;
-    transform: rotate(-202deg) scale(0.985);
-  }
+@keyframes ring-transition-flash {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  16%, 48%, 80% { opacity: 0.18; transform: scale(0.92); }
+  32%, 64% { opacity: 1; transform: scale(1.12); }
 }
 
-@keyframes ring-event-stretch {
-  0%,
-  100% {
-    stroke-dasharray: 102 5;
-    stroke-dashoffset: 0;
-    stroke-width: 4.4;
-    transform: rotate(0deg) scale(1);
-  }
-
-  42% {
-    stroke-dasharray: 106 1;
-    stroke-dashoffset: -15;
-    stroke-width: 5.1;
-    transform: rotate(74deg) scale(1.055);
-  }
-
-  72% {
-    stroke-dasharray: 89 6 12 0;
-    stroke-dashoffset: -28;
-    stroke-width: 4.15;
-    transform: rotate(132deg) scale(0.98);
-  }
+@keyframes ring-transition-burst {
+  0% { opacity: 0.3; transform: scale(0.58); }
+  36% { opacity: 1; transform: scale(1.32); }
+  62% { transform: scale(0.9); }
+  82% { transform: scale(1.08); }
+  100% { opacity: 1; transform: scale(1); }
 }
 
-@keyframes ring-event-droplet {
-  0%,
-  100% {
-    stroke-dasharray: 102 5;
-    stroke-dashoffset: 0;
-    transform: rotate(0deg) scale(1);
-  }
-
-  48% {
-    stroke-dasharray: 96 4 9 0;
-    stroke-dashoffset: -18;
-    transform: rotate(94deg) scale(1.02);
-  }
+@keyframes ring-transition-hop {
+  0% { transform: translateY(0) scale(0.88); }
+  38% { transform: translateY(-7px) scale(1.1, 0.92); }
+  64% { transform: translateY(2px) scale(0.94, 1.08); }
+  100% { transform: translateY(0) scale(1); }
 }
 
-@keyframes ring-drop-a {
-  0%,
-  100% {
-    opacity: 0;
-    transform: rotate(0deg) translateY(0) scale(0.3);
-  }
-
-  26% {
-    opacity: 0.9;
-    transform: rotate(38deg) translateY(-3.5px) scale(1.05);
-  }
-
-  58% {
-    opacity: 0.55;
-    transform: rotate(96deg) translateY(-1px) scale(0.72);
-  }
+@keyframes ring-transition-settle {
+  0% { opacity: 0.5; transform: rotate(-24deg) scale(1.18); }
+  100% { opacity: 1; transform: rotate(0deg) scale(1); }
 }
 
-@keyframes ring-drop-b {
-  0%,
-  100% {
-    opacity: 0;
-    transform: rotate(0deg) translateY(0) scale(0.28);
-  }
+@keyframes ring-transition-alert {
+  0%, 100% { opacity: 1; transform: translateX(0) scale(1); }
+  18%, 54% { opacity: 0.22; transform: translateX(-3px) scale(1.08); }
+  36%, 72% { opacity: 1; transform: translateX(3px) scale(0.94); }
+}
 
-  34% {
-    opacity: 0.72;
-    transform: rotate(-44deg) translateY(-3px) scale(0.86);
-  }
+@keyframes ring-transition-reconnect {
+  0% { opacity: 0.2; transform: rotate(-150deg) scale(0.62); }
+  58% { opacity: 0.75; transform: rotate(18deg) scale(1.12); }
+  100% { opacity: 1; transform: rotate(0deg) scale(1); }
+}
 
-  70% {
-    opacity: 0.38;
-    transform: rotate(-112deg) translateY(0.5px) scale(0.5);
+@media (prefers-reduced-motion: reduce) {
+  .status-ring-surface,
+  .status-ring-main,
+  .status-ring-drop {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
   }
 }

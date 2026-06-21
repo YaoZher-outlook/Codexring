@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { App } from "../src/renderer/src/App";
 import type { WidgetApi, WidgetState } from "../src/shared/widgetTypes";
@@ -6,6 +6,7 @@ import type { WidgetApi, WidgetState } from "../src/shared/widgetTypes";
 describe("App", () => {
   it("renders stable limit bars from preload state", async () => {
     const state: WidgetState = {
+      revision: 1,
       connection: { status: "connected", error: null, detail: null, lastConnectedAt: "now" },
       thread: {
         id: "thr_1",
@@ -71,6 +72,9 @@ describe("App", () => {
     render(<App />);
 
     expect(await screen.findByLabelText("Codex status widget")).toHaveAttribute("data-ring", "working");
+    await waitFor(() => {
+      expect(document.querySelector(".status-ring-working")).toHaveClass("status-ring-transition-burst");
+    });
     expect(screen.getByLabelText("5h limit 75%")).toBeInTheDocument();
     expect(screen.getByLabelText("周 limit N/A")).toBeInTheDocument();
   });

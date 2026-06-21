@@ -1,8 +1,11 @@
-import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { readLatestLocalSessionSnapshot } from "../src/main/codex/localSessionSource";
+import {
+  createLocalSessionSnapshotReader,
+  readLatestLocalSessionSnapshot
+} from "../src/main/codex/localSessionSource";
 
 const tempDirs: string[] = [];
 
@@ -80,13 +83,31 @@ describe("local Codex session snapshots", () => {
       }
     });
   });
+
+  it("detects an appended event even when the file timestamp does not advance", () => {
+    const fixture = createSessionFixture();
+    fixture.append("event_msg", { type: "task_started" }, "2026-06-18T01:00:00.000Z");
+    const readSnapshot = createLocalSessionSnapshotReader(fixture.codexHome);
+    expect(readSnapshot()?.ring).toBe("creating");
+
+    const originalMtime = statSync(fixture.sessionFile).mtime;
+    fixture.append(
+      "response_item",
+      { type: "function_call", name: "shell_command" },
+      "2026-06-18T01:00:01.000Z"
+    );
+    utimesSync(fixture.sessionFile, originalMtime, originalMtime);
+
+    expect(readSnapshot()?.ring).toBe("working");
+  });
 });
 
 function createSessionFixture(): {
   codexHome: string;
+  sessionFile: string;
   append(type: string, payload: Record<string, unknown>, timestamp: string): void;
 } {
-  const codexHome = mkdtempSync(join(tmpdir(), "codey-session-"));
+  const codexHome = mkdtempSync(join(tmpdir(), "codexring-session-"));
   tempDirs.push(codexHome);
   const sessionDir = join(codexHome, "sessions", "2026", "06", "18");
   mkdirSync(sessionDir, { recursive: true });
@@ -96,13 +117,14 @@ function createSessionFixture(): {
     `${JSON.stringify({
       timestamp: "2026-06-18T01:00:00.000Z",
       type: "session_meta",
-      payload: { id: "thread_test", cwd: "E:\\Projects\\App\\codey", originator: "codex" }
+      payload: { id: "thread_test", cwd: join("Projects", "Codexring"), originator: "codex" }
     })}\n`,
     "utf8"
   );
 
   return {
     codexHome,
+    sessionFile,
     append(type, payload, timestamp) {
       appendFileSync(sessionFile, `${JSON.stringify({ timestamp, type, payload })}\n`, "utf8");
     }

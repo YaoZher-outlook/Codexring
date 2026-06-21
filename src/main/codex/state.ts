@@ -18,6 +18,7 @@ const WEEK_MINS = 10_080;
 
 export function createInitialWidgetState(): WidgetState {
   return withTooltip({
+    revision: 0,
     connection: {
       status: "connecting",
       error: null,

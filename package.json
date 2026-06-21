@@ -1,13 +1,16 @@
 {
-  "name": "codey",
+  "name": "codexring",
+  "productName": "Codexring",
   "version": "0.1.0",
-  "description": "A tiny always-on-top Codex status widget for Windows.",
+  "description": "A responsive always-on-top Codex status and usage widget for Windows.",
   "private": true,
   "type": "module",
   "main": "out/main/index.js",
   "scripts": {
     "dev": "node scripts/start-dev.cjs",
     "build": "tsc --noEmit && electron-vite build",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run test && npm run build",
     "preview": "electron-vite preview",
     "test": "vitest run",
     "test:watch": "vitest",

@@ -18,7 +18,7 @@ async function main() {
   const env = { ...process.env };
   const electronDist = ensureElectronDist(env);
   const rendererPort = await chooseRendererPort(env);
-  env.CODEX_WIDGET_PORT = String(rendererPort);
+  env.CODEXRING_RENDERER_PORT = String(rendererPort);
 
   if (electronDist) {
     const electronExe = path.join(electronDist, exeName);
@@ -61,7 +61,7 @@ async function main() {
 }
 
 async function chooseRendererPort(env) {
-  const preferred = Number(env.CODEX_WIDGET_PORT || DEFAULT_PORT);
+  const preferred = Number(env.CODEXRING_RENDERER_PORT || DEFAULT_PORT);
   const start = Number.isInteger(preferred) && preferred >= PORT_MIN && preferred <= PORT_MAX ? preferred : DEFAULT_PORT;
 
   for (let port = start; port <= PORT_MAX; port += 1) {

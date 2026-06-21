@@ -138,7 +138,7 @@ function createTray(): void {
       `)
   );
   tray = new Tray(icon);
-  tray.setToolTip("Codey");
+  tray.setToolTip("Codexring");
   tray.setContextMenu(buildMenu());
 }
 
@@ -186,7 +186,7 @@ app.whenReady().then(() => {
     }
   });
   controller.on("diagnostic", (message) => {
-    console.warn(`[codex-widget] ${String(message).trim()}`);
+    console.warn(`[codexring] ${String(message).trim()}`);
   });
   void controller.start();
 

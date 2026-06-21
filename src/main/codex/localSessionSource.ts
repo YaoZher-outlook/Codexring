@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import type { RateLimitsResult } from "./types";
 import type { RingState, ThreadSummary } from "../../shared/widgetTypes";
 
-const SESSION_RESCAN_MS = 1_000;
+const SESSION_RESCAN_MS = 250;
 const SESSION_HEAD_BYTES = 128_000;
 const SESSION_TAIL_BYTES = 4_000_000;
 
@@ -47,6 +47,7 @@ export function createLocalSessionSnapshotReader(
   let latest: SessionFile | null = null;
   let cachedSnapshot: LocalSessionSnapshot | null = null;
   let cachedPath: string | null = null;
+  let cachedSize: number | null = null;
   let nextRescanAt = 0;
 
   return () => {
@@ -69,7 +70,12 @@ export function createLocalSessionSnapshotReader(
 
     try {
       const stat = statSync(latest.fullPath);
-      if (cachedSnapshot && cachedPath === latest.fullPath && stat.mtimeMs === cachedSnapshot.updatedAtMs) {
+      if (
+        cachedSnapshot &&
+        cachedPath === latest.fullPath &&
+        stat.mtimeMs === cachedSnapshot.updatedAtMs &&
+        stat.size === cachedSize
+      ) {
         return cachedSnapshot;
       }
       latest = { fullPath: latest.fullPath, mtimeMs: stat.mtimeMs, size: stat.size };
@@ -77,11 +83,13 @@ export function createLocalSessionSnapshotReader(
       latest = null;
       cachedSnapshot = null;
       cachedPath = null;
+      cachedSize = null;
       return null;
     }
 
     cachedSnapshot = readSessionSnapshot(latest);
     cachedPath = latest.fullPath;
+    cachedSize = latest.size;
     return cachedSnapshot;
   };
 }

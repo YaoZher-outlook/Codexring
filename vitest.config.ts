@@ -7,7 +7,7 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     globals: true,
-    setupFiles: ["tests/setup.ts"],
+    setupFiles: ["@testing-library/jest-dom/vitest"],
     include: ["tests/**/*.test.ts", "tests/**/*.test.tsx"],
     coverage: {
       reporter: ["text", "html"]

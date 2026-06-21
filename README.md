@@ -1,4 +1,4 @@
-# Codey
+# Codexring
 
 A tiny Windows-first Electron widget for watching Codex work at a glance.
 
@@ -11,13 +11,13 @@ npm.cmd install
 npm.cmd run dev
 ```
 
-You can also double-click `start-codex-pet.cmd` from this folder. It uses `npm.cmd`, keeps npm cache inside the project, installs dependencies if they are missing, and then starts the widget.
+You can also double-click `start-codexring.cmd` from this folder. It uses `npm.cmd`, keeps npm cache inside the project, installs dependencies if they are missing, and then starts the widget.
 
 To create a desktop shortcut, double-click `create-desktop-shortcut.cmd`.
 
 The dev launcher runs through `scripts/start-dev.cjs`. If this project's Electron binary is missing, it first looks for a nearby installed `electron.exe` and sets `ELECTRON_EXEC_PATH` automatically. This fixes the common `Electron uninstall` startup error caused by an interrupted Electron binary download.
 
-The renderer dev server automatically picks a free port in `20000-39999`, starting from `28473`. You can override the starting port with `CODEX_WIDGET_PORT`.
+The renderer dev server automatically picks a free port in `20000-39999`, starting from `28473`. You can override the starting port with `CODEXRING_RENDERER_PORT`.
 
 If `codex app-server` cannot be spawned, the widget falls back to reading the latest local Codex session JSONL under `%USERPROFILE%\.codex\sessions`. That fallback can show the latest local session and 5h/weekly quota when those values are present in Codex's token-count events.
 
@@ -41,6 +41,8 @@ npm.cmd run dev
 - On Windows, live activity and quota snapshots follow the newest local Codex session JSONL because a separately spawned app-server does not share the desktop app's in-memory event stream.
 - It selects the newest loaded Codex thread, or the most recently updated thread if nothing is loaded.
 - It listens for status, turn, item, token usage, and rate-limit events.
+- Local session activity is checked every 150ms, with a 5s app-server quota fallback and an extra quota refresh after each completed turn.
+- Each state has its own continuous animation, plus a distinct transition such as jump/expand, burst, hop, or high-frequency flash.
 - Limit bars use remaining quota semantics: full means healthy, empty means exhausted.
 - Missing 5h or weekly buckets render as `N/A` instead of being estimated.
 - Right-click anywhere on the widget and choose `Settings` to change language, background/ring/bar opacity, status colors, whether limit bars are shown, and whether bars display remaining usage, used usage, or both.

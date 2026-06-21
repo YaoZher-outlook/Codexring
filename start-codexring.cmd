@@ -27,11 +27,11 @@ if not exist "node_modules\" (
   )
 )
 
-echo Starting Codey...
+echo Starting Codexring...
 call npm.cmd run dev
 
 if errorlevel 1 (
-  echo Codey exited with an error.
+  echo Codexring exited with an error.
   pause
   exit /b 1
 )

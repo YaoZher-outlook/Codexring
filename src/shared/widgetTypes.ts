@@ -44,6 +44,7 @@ export interface WidgetTooltip {
 }
 
 export interface WidgetState {
+  revision: number;
   connection: ConnectionInfo;
   thread: ThreadSummary;
   ring: RingState;

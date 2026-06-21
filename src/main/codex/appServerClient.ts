@@ -27,9 +27,10 @@ import type {
 } from "./types";
 import type { RingState, WidgetState } from "../../shared/widgetTypes";
 
-const DEFAULT_LOCAL_ACTIVITY_POLL_MS = 750;
-const DEFAULT_RATE_LIMIT_POLL_MS = 15_000;
+const DEFAULT_LOCAL_ACTIVITY_POLL_MS = 150;
+const DEFAULT_RATE_LIMIT_POLL_MS = 5_000;
 const RATE_LIMIT_RESET_REFRESH_DELAY_MS = 1_500;
+const RATE_LIMIT_ACTIVITY_REFRESH_DELAY_MS = 250;
 
 export interface CodexProcess extends EventEmitter {
   stdin: Writable;
@@ -53,9 +54,12 @@ export class CodexAppServerController extends EventEmitter {
   private selectedThreadId: string | null = null;
   private rateLimitTimer: NodeJS.Timeout | null = null;
   private rateLimitResetTimer: NodeJS.Timeout | null = null;
+  private rateLimitActivityTimer: NodeJS.Timeout | null = null;
+  private rateLimitRefreshPromise: Promise<void> | null = null;
   private localFallbackTimer: NodeJS.Timeout | null = null;
   private readonly localSessionSnapshotReader: () => LocalSessionSnapshot | null;
   private lastLocalSnapshotRevision: string | null = null;
+  private localRateLimitsActive = false;
 
   constructor(private readonly options: CodexControllerOptions = {}) {
     super();
@@ -74,6 +78,7 @@ export class CodexAppServerController extends EventEmitter {
     this.stopProcess();
     this.stopLocalFallbackPolling();
     this.lastLocalSnapshotRevision = null;
+    this.localRateLimitsActive = false;
     this.setState({
       ...this.state,
       connection: {
@@ -120,8 +125,8 @@ export class CodexAppServerController extends EventEmitter {
 
       await rpc.request("initialize", {
         clientInfo: {
-          name: "codey",
-          title: "Codey",
+          name: "codexring",
+          title: "Codexring",
           version: "0.1.0"
         }
       });
@@ -138,10 +143,12 @@ export class CodexAppServerController extends EventEmitter {
         ring: "idle"
       });
 
-      await this.hydrateThread();
-      await this.refreshRateLimits();
+      const hasLocalSnapshot = this.startLocalActivityPolling();
+      await Promise.all([
+        hasLocalSnapshot ? Promise.resolve() : this.hydrateThread(),
+        this.refreshRateLimits()
+      ]);
       this.startRateLimitPolling();
-      this.startLocalActivityPolling();
     } catch (error) {
       this.setDisconnected(error instanceof Error ? error.message : String(error));
     }
@@ -153,16 +160,38 @@ export class CodexAppServerController extends EventEmitter {
   }
 
   async refreshRateLimits(): Promise<void> {
-    if (!this.rpc) {
+    if (this.localRateLimitsActive) {
       return;
     }
 
-    try {
-      const result = await this.rpc.request<RateLimitsResult>("account/rateLimits/read", undefined, 10_000);
-      this.applyRateLimitState(result);
-    } catch (error) {
-      this.emit("diagnostic", `rate limits unavailable: ${error instanceof Error ? error.message : String(error)}`);
+    if (this.rateLimitRefreshPromise) {
+      return this.rateLimitRefreshPromise;
     }
+
+    const rpc = this.rpc;
+    if (!rpc) {
+      return;
+    }
+
+    const refresh = (async () => {
+      try {
+        const result = await rpc.request<RateLimitsResult>("account/rateLimits/read", undefined, 10_000);
+        if (this.rpc === rpc && !this.localRateLimitsActive) {
+          this.applyRateLimitState(result);
+        }
+      } catch (error) {
+        if (this.rpc === rpc) {
+          this.emit("diagnostic", `rate limits unavailable: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+    })();
+
+    this.rateLimitRefreshPromise = refresh;
+    await refresh.finally(() => {
+      if (this.rateLimitRefreshPromise === refresh) {
+        this.rateLimitRefreshPromise = null;
+      }
+    });
   }
 
   dispose(): void {
@@ -310,8 +339,10 @@ export class CodexAppServerController extends EventEmitter {
 
   private handleNotification(method: string, params: unknown): void {
     if (method === "account/rateLimits/updated") {
-      this.applyRateLimitState(params as RateLimitsResult);
-      void this.refreshRateLimits();
+      if (!this.localRateLimitsActive) {
+        this.applyRateLimitState(params as RateLimitsResult);
+        void this.refreshRateLimits();
+      }
       return;
     }
 
@@ -352,6 +383,9 @@ export class CodexAppServerController extends EventEmitter {
 
     if (method.startsWith("turn/") || method.startsWith("item/")) {
       this.handleActivityNotification(method, params as ThreadEventParams);
+      if (method === "turn/completed") {
+        this.scheduleActivityRateLimitRefresh();
+      }
     }
   }
 
@@ -405,9 +439,11 @@ export class CodexAppServerController extends EventEmitter {
       this.rateLimitTimer = null;
     }
     this.clearRateLimitResetTimer();
+    this.clearActivityRateLimitRefresh();
 
     this.rpc?.destroy();
     this.rpc = null;
+    this.rateLimitRefreshPromise = null;
     const process = this.process;
     this.process = null;
     if (process) {
@@ -455,6 +491,7 @@ export class CodexAppServerController extends EventEmitter {
       thread: snapshot.thread,
       ring: snapshot.ring
     };
+    this.localRateLimitsActive = Boolean(snapshot.rateLimits);
     if (snapshot.rateLimits) {
       next = applyRateLimits(next, snapshot.rateLimits, localRateLimitUpdatedAt(snapshot));
     }
@@ -463,19 +500,19 @@ export class CodexAppServerController extends EventEmitter {
     this.setState(next);
   }
 
-  private refreshLocalActivitySignal(): void {
+  private refreshLocalActivitySignal(): boolean {
     if (this.state.connection.status !== "connected") {
-      return;
+      return false;
     }
 
     const snapshot = this.readLocalSessionSnapshot();
     if (!snapshot) {
-      return;
+      return false;
     }
 
     const revision = localSnapshotRevision(snapshot);
     if (revision === this.lastLocalSnapshotRevision) {
-      return;
+      return true;
     }
 
     let next: WidgetState = {
@@ -483,6 +520,7 @@ export class CodexAppServerController extends EventEmitter {
       thread: snapshot.thread,
       ring: snapshot.ring
     };
+    this.localRateLimitsActive = Boolean(snapshot.rateLimits);
     if (snapshot.rateLimits) {
       next = applyRateLimits(next, snapshot.rateLimits, localRateLimitUpdatedAt(snapshot));
     }
@@ -490,6 +528,7 @@ export class CodexAppServerController extends EventEmitter {
     this.selectedThreadId = snapshot.thread.id;
     this.lastLocalSnapshotRevision = revision;
     this.setState(next);
+    return true;
   }
 
   private startLocalFallbackPolling(reason: string): void {
@@ -502,15 +541,16 @@ export class CodexAppServerController extends EventEmitter {
     }, this.options.localActivityPollMs ?? DEFAULT_LOCAL_ACTIVITY_POLL_MS);
   }
 
-  private startLocalActivityPolling(): void {
+  private startLocalActivityPolling(): boolean {
     if (this.localFallbackTimer) {
       clearInterval(this.localFallbackTimer);
     }
 
-    this.refreshLocalActivitySignal();
+    const hasSnapshot = this.refreshLocalActivitySignal();
     this.localFallbackTimer = setInterval(() => {
       this.refreshLocalActivitySignal();
     }, this.options.localActivityPollMs ?? DEFAULT_LOCAL_ACTIVITY_POLL_MS);
+    return hasSnapshot;
   }
 
   private stopLocalFallbackPolling(): void {
@@ -536,7 +576,10 @@ export class CodexAppServerController extends EventEmitter {
   }
 
   private setState(next: WidgetState): void {
-    this.state = withTooltip(next);
+    this.state = withTooltip({
+      ...next,
+      revision: this.state.revision + 1
+    });
     this.emit("state", this.state);
   }
 
@@ -565,6 +608,21 @@ export class CodexAppServerController extends EventEmitter {
     if (this.rateLimitResetTimer) {
       clearTimeout(this.rateLimitResetTimer);
       this.rateLimitResetTimer = null;
+    }
+  }
+
+  private scheduleActivityRateLimitRefresh(): void {
+    this.clearActivityRateLimitRefresh();
+    this.rateLimitActivityTimer = setTimeout(() => {
+      this.rateLimitActivityTimer = null;
+      void this.refreshRateLimits();
+    }, RATE_LIMIT_ACTIVITY_REFRESH_DELAY_MS);
+  }
+
+  private clearActivityRateLimitRefresh(): void {
+    if (this.rateLimitActivityTimer) {
+      clearTimeout(this.rateLimitActivityTimer);
+      this.rateLimitActivityTimer = null;
     }
   }
 
