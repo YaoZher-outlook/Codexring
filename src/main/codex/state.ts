@@ -82,7 +82,11 @@ export function mapStatusToRing(
     return "failed";
   }
 
-  if (flags.some((flag) => flag.includes("waitingonapproval") || flag.includes("approval"))) {
+  if (
+    flags.some(
+      (flag) => flag.includes("waitingonapproval") || flag.includes("waitingonuserinput") || flag.includes("approval")
+    )
+  ) {
     return "waitingApproval";
   }
 
@@ -100,6 +104,10 @@ export function mapStatusToRing(
 
   if (hasWorkingStatusText(type) || flags.some(hasWorkingStatusText)) {
     return "working";
+  }
+
+  if (type === "active") {
+    return fallback;
   }
 
   return "idle";
@@ -146,7 +154,11 @@ export function normalizeStatusText(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-export function applyRateLimits(state: WidgetState, result: RateLimitsResult | null | undefined): WidgetState {
+export function applyRateLimits(
+  state: WidgetState,
+  result: RateLimitsResult | null | undefined,
+  updatedAt = new Date().toISOString()
+): WidgetState {
   const fiveHour = toLimitBucket("5h", FIVE_HOURS_MINS, findRateLimitWindow(result, FIVE_HOURS_MINS));
   const weekly = toLimitBucket("Week", WEEK_MINS, findRateLimitWindow(result, WEEK_MINS));
 
@@ -155,7 +167,7 @@ export function applyRateLimits(state: WidgetState, result: RateLimitsResult | n
     limits: {
       fiveHour,
       weekly,
-      lastUpdatedAt: new Date().toISOString()
+      lastUpdatedAt: updatedAt
     }
   });
 }

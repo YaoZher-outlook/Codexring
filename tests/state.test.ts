@@ -30,6 +30,16 @@ describe("Codex widget state helpers", () => {
 
   it("does not treat a generic active thread marker as thinking", () => {
     expect(mapStatusToRing("connected", { type: "active" })).toBe("idle");
+    expect(mapStatusToRing("connected", { type: "active" }, "working")).toBe("working");
+  });
+
+  it("maps waiting-on-user-input to the waiting ring", () => {
+    expect(
+      mapStatusToRing("connected", {
+        type: "active",
+        activeFlags: ["waitingOnUserInput"]
+      })
+    ).toBe("waitingApproval");
   });
 
   it("selects 5h and weekly rate limit windows by duration", () => {

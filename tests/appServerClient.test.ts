@@ -5,6 +5,7 @@ import {
   CodexAppServerController,
   type CodexProcess
 } from "../src/main/codex/appServerClient";
+import type { LocalSessionSnapshot } from "../src/main/codex/localSessionSource";
 
 class FakeCodexProcess extends EventEmitter implements CodexProcess {
   readonly stdin = new PassThrough();
@@ -130,9 +131,11 @@ describe("CodexAppServerController", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(controller.getState().ring).toBe("waitingApproval");
 
-    fake.notify("turn/updated", {
+    fake.notify("item/started", {
       threadId: "thr_recent",
-      status: "thinking"
+      turnId: "turn_1",
+      item: { id: "item_1", type: "reasoning" },
+      startedAtMs: Date.now()
     });
 
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -163,39 +166,70 @@ describe("CodexAppServerController", () => {
     controller.dispose();
   });
 
-  it("uses recent local session writes as an activity signal when app-server status is idle", async () => {
+  it("uses local session lifecycle and quota as the live source", async () => {
     const fake = new FakeCodexProcess();
     let updatedAtMs = Date.now();
+    let snapshot: LocalSessionSnapshot = {
+      thread: {
+        id: "local_current",
+        title: "Local: codey",
+        preview: "codex desktop",
+        statusType: "localSession",
+        updatedAt: updatedAtMs
+      },
+      rateLimits: {
+        rate_limits: {
+          primary: { used_percent: 10, window_minutes: 300 },
+          secondary: { used_percent: 20, window_minutes: 10080 }
+        }
+      },
+      rateLimitsUpdatedAtMs: updatedAtMs,
+      ring: "creating",
+      active: true,
+      updatedAtMs,
+      activityUpdatedAtMs: updatedAtMs,
+      activityKind: "event_msg:task_started"
+    };
     const controller = new CodexAppServerController({
       findCodexBin: () => "codex",
       spawnProcess: () => fake,
-      readLocalSessionSnapshot: () => ({
-        thread: {
-          id: "local_current",
-          title: "Local: codey",
-          preview: "codex desktop",
-          statusType: "localFallback",
-          updatedAt: updatedAtMs
-        },
-        rateLimits: null,
-        updatedAtMs,
-        activityUpdatedAtMs: updatedAtMs,
-        activityKind: "response_item:reasoning"
-      }),
+      readLocalSessionSnapshot: () => snapshot,
       rateLimitPollMs: 60_000,
-      localActivityPollMs: 5,
-      localActivityFreshMs: 20
+      localActivityPollMs: 5
     });
 
     await controller.start();
     expect(controller.getState()).toMatchObject({
-      ring: "thinking",
-      thread: { id: "local_current", statusType: "localActivity" }
+      ring: "creating",
+      thread: { id: "local_current", statusType: "localSession" },
+      limits: {
+        fiveHour: { remainingPercent: 90 },
+        weekly: { remainingPercent: 80 }
+      }
     });
 
-    updatedAtMs = Date.now() - 120_000;
+    updatedAtMs += 1;
+    snapshot = {
+      ...snapshot,
+      ring: "working",
+      updatedAtMs,
+      activityUpdatedAtMs: updatedAtMs,
+      activityKind: "response_item:function_call"
+    };
     await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(controller.getState().ring).toBe("idle");
+    expect(controller.getState().ring).toBe("working");
+
+    updatedAtMs += 1;
+    snapshot = {
+      ...snapshot,
+      ring: "reviewReady",
+      active: false,
+      updatedAtMs,
+      activityUpdatedAtMs: updatedAtMs,
+      activityKind: "event_msg:task_complete"
+    };
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(controller.getState().ring).toBe("reviewReady");
     controller.dispose();
   });
 });

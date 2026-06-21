@@ -38,6 +38,7 @@ npm.cmd run dev
 ## Behavior
 
 - The app connects to `codex app-server` over stdio JSONL RPC.
+- On Windows, live activity and quota snapshots follow the newest local Codex session JSONL because a separately spawned app-server does not share the desktop app's in-memory event stream.
 - It selects the newest loaded Codex thread, or the most recently updated thread if nothing is loaded.
 - It listens for status, turn, item, token usage, and rate-limit events.
 - Limit bars use remaining quota semantics: full means healthy, empty means exhausted.

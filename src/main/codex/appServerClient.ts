@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events";
 import type { Readable, Writable } from "node:stream";
 import { JsonlRpcClient } from "./jsonlRpc";
 import { findCodexBin } from "./codexBin";
-import { readLatestLocalSessionSnapshot, type LocalSessionSnapshot } from "./localSessionSource";
+import { createLocalSessionSnapshotReader, type LocalSessionSnapshot } from "./localSessionSource";
 import {
   applyRateLimits,
   createInitialWidgetState,
@@ -27,7 +27,7 @@ import type {
 } from "./types";
 import type { RingState, WidgetState } from "../../shared/widgetTypes";
 
-const DEFAULT_LOCAL_ACTIVITY_FRESH_MS = 60_000;
+const DEFAULT_LOCAL_ACTIVITY_POLL_MS = 750;
 const DEFAULT_RATE_LIMIT_POLL_MS = 15_000;
 const RATE_LIMIT_RESET_REFRESH_DELAY_MS = 1_500;
 
@@ -44,7 +44,6 @@ export interface CodexControllerOptions {
   readLocalSessionSnapshot?: () => LocalSessionSnapshot | null;
   rateLimitPollMs?: number;
   localActivityPollMs?: number;
-  localActivityFreshMs?: number;
 }
 
 export class CodexAppServerController extends EventEmitter {
@@ -55,10 +54,12 @@ export class CodexAppServerController extends EventEmitter {
   private rateLimitTimer: NodeJS.Timeout | null = null;
   private rateLimitResetTimer: NodeJS.Timeout | null = null;
   private localFallbackTimer: NodeJS.Timeout | null = null;
-  private localActivityActive = false;
+  private readonly localSessionSnapshotReader: () => LocalSessionSnapshot | null;
+  private lastLocalSnapshotRevision: string | null = null;
 
   constructor(private readonly options: CodexControllerOptions = {}) {
     super();
+    this.localSessionSnapshotReader = options.readLocalSessionSnapshot ?? createLocalSessionSnapshotReader();
   }
 
   getState(): WidgetState {
@@ -72,6 +73,7 @@ export class CodexAppServerController extends EventEmitter {
   async reconnect(): Promise<void> {
     this.stopProcess();
     this.stopLocalFallbackPolling();
+    this.lastLocalSnapshotRevision = null;
     this.setState({
       ...this.state,
       connection: {
@@ -166,7 +168,6 @@ export class CodexAppServerController extends EventEmitter {
   dispose(): void {
     this.stopProcess();
     this.stopLocalFallbackPolling();
-    this.localActivityActive = false;
   }
 
   private async hydrateThread(): Promise<void> {
@@ -438,21 +439,27 @@ export class CodexAppServerController extends EventEmitter {
       return;
     }
 
-    const isFresh = Date.now() - snapshot.activityUpdatedAtMs < DEFAULT_LOCAL_ACTIVITY_FRESH_MS;
-    const next = applyRateLimits(
-      {
-        ...this.state,
-        connection: {
-          status: "fallback",
-          error: "Using local Codex session",
-          detail: compactError(reason),
-          lastConnectedAt: this.state.connection.lastConnectedAt
-        },
-        thread: snapshot.thread,
-        ring: isFresh ? ringFromLocalActivity(snapshot.activityKind) : "idle"
+    const revision = localSnapshotRevision(snapshot);
+    if (this.state.connection.status === "fallback" && revision === this.lastLocalSnapshotRevision) {
+      return;
+    }
+
+    let next: WidgetState = {
+      ...this.state,
+      connection: {
+        status: "fallback",
+        error: "Using local Codex session",
+        detail: compactError(reason),
+        lastConnectedAt: this.state.connection.lastConnectedAt
       },
-      snapshot.rateLimits
-    );
+      thread: snapshot.thread,
+      ring: snapshot.ring
+    };
+    if (snapshot.rateLimits) {
+      next = applyRateLimits(next, snapshot.rateLimits, localRateLimitUpdatedAt(snapshot));
+    }
+    this.selectedThreadId = snapshot.thread.id;
+    this.lastLocalSnapshotRevision = revision;
     this.setState(next);
   }
 
@@ -466,41 +473,23 @@ export class CodexAppServerController extends EventEmitter {
       return;
     }
 
-    const isFresh =
-      Date.now() - snapshot.activityUpdatedAtMs < (this.options.localActivityFreshMs ?? DEFAULT_LOCAL_ACTIVITY_FRESH_MS);
-    const canPromote =
-      this.state.ring === "idle" ||
-      (this.localActivityActive &&
-        (this.state.ring === "creating" || this.state.ring === "thinking" || this.state.ring === "working"));
-    if (isFresh && canPromote) {
-      const ring = ringFromLocalActivity(snapshot.activityKind);
-      this.localActivityActive = true;
-      this.setState({
-        ...this.state,
-        thread: {
-          ...snapshot.thread,
-          statusType: "localActivity"
-        },
-        ring
-      });
+    const revision = localSnapshotRevision(snapshot);
+    if (revision === this.lastLocalSnapshotRevision) {
       return;
     }
 
-    if (
-      !isFresh &&
-      this.localActivityActive &&
-      (this.state.ring === "creating" || this.state.ring === "thinking" || this.state.ring === "working")
-    ) {
-      this.localActivityActive = false;
-      this.setState({
-        ...this.state,
-        ring: "idle",
-        thread: {
-          ...this.state.thread,
-          statusType: this.state.thread.statusType === "localActivity" ? "idle" : this.state.thread.statusType
-        }
-      });
+    let next: WidgetState = {
+      ...this.state,
+      thread: snapshot.thread,
+      ring: snapshot.ring
+    };
+    if (snapshot.rateLimits) {
+      next = applyRateLimits(next, snapshot.rateLimits, localRateLimitUpdatedAt(snapshot));
     }
+
+    this.selectedThreadId = snapshot.thread.id;
+    this.lastLocalSnapshotRevision = revision;
+    this.setState(next);
   }
 
   private startLocalFallbackPolling(reason: string): void {
@@ -510,7 +499,7 @@ export class CodexAppServerController extends EventEmitter {
 
     this.localFallbackTimer = setInterval(() => {
       this.refreshLocalFallback(reason);
-    }, 15_000);
+    }, this.options.localActivityPollMs ?? DEFAULT_LOCAL_ACTIVITY_POLL_MS);
   }
 
   private startLocalActivityPolling(): void {
@@ -521,7 +510,7 @@ export class CodexAppServerController extends EventEmitter {
     this.refreshLocalActivitySignal();
     this.localFallbackTimer = setInterval(() => {
       this.refreshLocalActivitySignal();
-    }, this.options.localActivityPollMs ?? 2_000);
+    }, this.options.localActivityPollMs ?? DEFAULT_LOCAL_ACTIVITY_POLL_MS);
   }
 
   private stopLocalFallbackPolling(): void {
@@ -529,7 +518,6 @@ export class CodexAppServerController extends EventEmitter {
       clearInterval(this.localFallbackTimer);
       this.localFallbackTimer = null;
     }
-    this.localActivityActive = false;
   }
 
   private setConnectionDetail(detail: string): void {
@@ -581,7 +569,7 @@ export class CodexAppServerController extends EventEmitter {
   }
 
   private readLocalSessionSnapshot(): LocalSessionSnapshot | null {
-    return (this.options.readLocalSessionSnapshot ?? readLatestLocalSessionSnapshot)();
+    return this.localSessionSnapshotReader();
   }
 }
 
@@ -619,23 +607,6 @@ function nextRateLimitResetAtMs(state: WidgetState): number | null {
   }
 
   return Math.min(...resetTimes);
-}
-
-function ringFromLocalActivity(kind: string | null): RingState {
-  const text = normalizeStatusText(kind ?? "");
-  if (hasCreatingStatusText(text)) {
-    return "creating";
-  }
-
-  if (hasWorkingStatusText(text)) {
-    return "working";
-  }
-
-  if (hasThinkingStatusText(text)) {
-    return "thinking";
-  }
-
-  return "thinking";
 }
 
 function preserveReviewReady(current: RingState, next: RingState): RingState {
@@ -728,4 +699,19 @@ function ringFromActivity(method: string, params: ThreadEventParams, current: Ri
 function compactError(error: string): string {
   const oneLine = error.replace(/\s+/g, " ").trim();
   return oneLine.length > 120 ? `${oneLine.slice(0, 117)}...` : oneLine;
+}
+
+function localSnapshotRevision(snapshot: LocalSessionSnapshot): string {
+  return [
+    snapshot.thread.id ?? "",
+    snapshot.updatedAtMs,
+    snapshot.activityUpdatedAtMs,
+    snapshot.rateLimitsUpdatedAtMs ?? "",
+    snapshot.ring
+  ].join(":");
+}
+
+function localRateLimitUpdatedAt(snapshot: LocalSessionSnapshot): string {
+  const timestamp = snapshot.rateLimitsUpdatedAtMs ?? snapshot.updatedAtMs;
+  return new Date(timestamp).toISOString();
 }
