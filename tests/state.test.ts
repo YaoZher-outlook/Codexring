@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyRateLimits,
   createInitialWidgetState,
   findRateLimitWindow,
+  markRateLimitsProblem,
+  markRateLimitsRefreshing,
   mapStatusToRing,
   toLimitBucket
 } from "../src/main/codex/state";
@@ -135,6 +138,46 @@ describe("Codex widget state helpers", () => {
       remainingPercent: 100,
       tone: "ok",
       reached: false
+    });
+  });
+
+  it("keeps cached rate limits visible while a refresh is in flight", () => {
+    const state = applyRateLimits(
+      createInitialWidgetState(),
+      {
+        rateLimitsByLimitId: {
+          codex_5h: {
+            primary: { usedPercent: 25, windowDurationMins: 300 }
+          }
+        }
+      },
+      "2026-01-01T00:00:00.000Z",
+      "appServer"
+    );
+
+    const refreshing = markRateLimitsRefreshing(state, "appServer", "2026-01-01T00:00:01.000Z");
+    expect(refreshing.limits).toMatchObject({
+      status: "refreshing",
+      source: "appServer",
+      refreshStartedAt: "2026-01-01T00:00:01.000Z",
+      fiveHour: { remainingPercent: 75 }
+    });
+
+    const stale = markRateLimitsProblem(refreshing, "network down", "appServer");
+    expect(stale.limits).toMatchObject({
+      status: "stale",
+      error: "network down",
+      fiveHour: { remainingPercent: 75 }
+    });
+  });
+
+  it("marks rate limits as unavailable when a refresh fails without cached data", () => {
+    const state = markRateLimitsProblem(createInitialWidgetState(), "rpc unavailable", "appServer");
+
+    expect(state.limits).toMatchObject({
+      status: "error",
+      source: "appServer",
+      error: "rpc unavailable"
     });
   });
 

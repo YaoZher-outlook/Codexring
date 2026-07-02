@@ -1,11 +1,21 @@
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
-import type { LimitBucket, RingState, WidgetState } from "../../shared/widgetTypes";
+import type { LimitBucket, LimitSyncStatus, RingState, WidgetState } from "../../shared/widgetTypes";
 import { createInitialWidgetState, ringLabel } from "../../main/codex/state";
 
 type Language = "zh" | "en";
 type BarContent = "remaining" | "used" | "both";
 type RingVisualState = RingState | "limitExceeded" | "limitReset";
-type RingTransition = "none" | "jump" | "flash" | "burst" | "hop" | "settle" | "alert" | "reconnect";
+type RingTransition =
+  | "none"
+  | "jump"
+  | "flash"
+  | "burst"
+  | "hop"
+  | "notify"
+  | "recover"
+  | "settle"
+  | "alert"
+  | "reconnect";
 
 interface WidgetSettings {
   language: Language;
@@ -389,9 +399,13 @@ export function App(): JSX.Element {
             />
           </section>
           {settings.bars.visible ? (
-            <section className="bars-zone" aria-label="Codex usage limits">
-              <LimitBar limit={state.limits.fiveHour} settings={settings} />
-              <LimitBar limit={state.limits.weekly} settings={settings} />
+            <section
+              className={`bars-zone limit-sync-${state.limits.status}`}
+              aria-label="Codex usage limits"
+              data-limit-source={state.limits.source ?? "unknown"}
+            >
+              <LimitBar limit={state.limits.fiveHour} syncStatus={state.limits.status} settings={settings} />
+              <LimitBar limit={state.limits.weekly} syncStatus={state.limits.status} settings={settings} />
             </section>
           ) : null}
           {notice ? <div className="notice-toast">{notice}</div> : null}
@@ -428,13 +442,22 @@ function StatusRing({
   );
 }
 
-function LimitBar({ limit, settings }: { limit: LimitBucket; settings: WidgetSettings }): JSX.Element {
+function LimitBar({
+  limit,
+  syncStatus,
+  settings
+}: {
+  limit: LimitBucket;
+  syncStatus: LimitSyncStatus;
+  settings: WidgetSettings;
+}): JSX.Element {
   const width = limit.available ? `${barFillPercent(limit, settings.bars.content)}%` : "100%";
-  const label = barLabel(limit, settings);
+  const label = barLabel(limit, settings, syncStatus);
   const name = limit.label === "Week" && settings.language === "zh" ? copy.zh.week : limit.label;
+  const syncLabel = limitSyncAria(syncStatus, settings.language);
 
   return (
-    <div className={`limit-row tone-${limit.tone}`} aria-label={`${name} limit ${label}`}>
+    <div className={`limit-row tone-${limit.tone}`} aria-label={`${name} limit ${label}${syncLabel}`}>
       <span className="limit-label">{name}</span>
       <span className="limit-track">
         <span className="limit-fill" style={{ width }} />
@@ -774,13 +797,15 @@ function transitionForRing(ring: RingVisualState): RingTransition {
     case "creating":
       return "jump";
     case "thinking":
-    case "reviewReady":
       return "flash";
     case "working":
-    case "limitReset":
       return "burst";
     case "waitingApproval":
       return "hop";
+    case "reviewReady":
+      return "notify";
+    case "limitReset":
+      return "recover";
     case "failed":
     case "limitExceeded":
       return "alert";
@@ -820,22 +845,39 @@ function barFillPercent(limit: LimitBucket, content: BarContent): number {
   return limit.remainingPercent ?? 0;
 }
 
-function barLabel(limit: LimitBucket, settings: WidgetSettings): string {
+function barLabel(limit: LimitBucket, settings: WidgetSettings, syncStatus: LimitSyncStatus): string {
   if (!limit.available || limit.remainingPercent === null || limit.usedPercent === null) {
-    return "N/A";
+    return syncStatus === "refreshing" || syncStatus === "unknown" ? "..." : "N/A";
   }
 
   const remaining = Math.round(limit.remainingPercent);
   const used = Math.round(limit.usedPercent);
+  const prefix = syncStatus === "stale" ? "~" : "";
   if (settings.bars.content === "used") {
-    return `${used}%`;
+    return `${prefix}${used}%`;
   }
 
   if (settings.bars.content === "both") {
-    return `${remaining}/${used}`;
+    return `${prefix}${remaining}/${used}`;
   }
 
-  return `${remaining}%`;
+  return `${prefix}${remaining}%`;
+}
+
+function limitSyncAria(syncStatus: LimitSyncStatus, language: Language): string {
+  if (syncStatus === "refreshing") {
+    return language === "zh" ? " (同步中)" : " (syncing)";
+  }
+
+  if (syncStatus === "stale") {
+    return language === "zh" ? " (缓存数据)" : " (cached)";
+  }
+
+  if (syncStatus === "error") {
+    return language === "zh" ? " (不可用)" : " (unavailable)";
+  }
+
+  return "";
 }
 
 function didAnyLimitReset(previous: WidgetState["limits"], next: WidgetState["limits"]): boolean {

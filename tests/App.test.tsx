@@ -37,7 +37,11 @@ describe("App", () => {
           tone: "muted",
           reached: false
         },
-        lastUpdatedAt: "now"
+        lastUpdatedAt: "now",
+        refreshStartedAt: null,
+        status: "ready",
+        source: "appServer",
+        error: null
       },
       tooltip: {
         primary: "Working - UI work",
@@ -75,6 +79,7 @@ describe("App", () => {
     await waitFor(() => {
       expect(document.querySelector(".status-ring-working")).toHaveClass("status-ring-transition-burst");
     });
+    expect(document.querySelector(".bars-zone")).toHaveClass("limit-sync-ready");
     expect(screen.getByLabelText("5h limit 75%")).toBeInTheDocument();
     expect(screen.getByLabelText("周 limit N/A")).toBeInTheDocument();
   });

@@ -1,5 +1,7 @@
 import type {
   LimitBucket,
+  LimitSource,
+  LimitSyncStatus,
   LimitTone,
   RingState,
   ThreadSummary,
@@ -30,7 +32,11 @@ export function createInitialWidgetState(): WidgetState {
     limits: {
       fiveHour: unavailableLimit("5h", FIVE_HOURS_MINS),
       weekly: unavailableLimit("Week", WEEK_MINS),
-      lastUpdatedAt: null
+      lastUpdatedAt: null,
+      refreshStartedAt: null,
+      status: "unknown",
+      source: null,
+      error: null
     },
     tooltip: {
       primary: "",
@@ -158,17 +164,59 @@ export function normalizeStatusText(value: string): string {
 export function applyRateLimits(
   state: WidgetState,
   result: RateLimitsResult | null | undefined,
-  updatedAt = new Date().toISOString()
+  updatedAt = new Date().toISOString(),
+  source: LimitSource = state.limits.source ?? "appServer"
 ): WidgetState {
   const fiveHour = toLimitBucket("5h", FIVE_HOURS_MINS, findRateLimitWindow(result, FIVE_HOURS_MINS));
   const weekly = toLimitBucket("Week", WEEK_MINS, findRateLimitWindow(result, WEEK_MINS));
+  const status: LimitSyncStatus = fiveHour.available || weekly.available ? "ready" : "unknown";
 
   return withTooltip({
     ...state,
     limits: {
       fiveHour,
       weekly,
-      lastUpdatedAt: updatedAt
+      lastUpdatedAt: updatedAt,
+      refreshStartedAt: null,
+      status,
+      source,
+      error: null
+    }
+  });
+}
+
+export function markRateLimitsRefreshing(
+  state: WidgetState,
+  source: LimitSource = state.limits.source ?? "appServer",
+  refreshStartedAt = new Date().toISOString()
+): WidgetState {
+  return withTooltip({
+    ...state,
+    limits: {
+      ...state.limits,
+      refreshStartedAt,
+      status: "refreshing",
+      source,
+      error: null
+    }
+  });
+}
+
+export function markRateLimitsProblem(
+  state: WidgetState,
+  error: string,
+  source: LimitSource | null = state.limits.source
+): WidgetState {
+  const hasCachedData = state.limits.fiveHour.available || state.limits.weekly.available;
+
+  return withTooltip({
+    ...state,
+    limits: {
+      ...state.limits,
+      refreshStartedAt: null,
+      status: hasCachedData ? "stale" : "error",
+      source,
+      error
     }
   });
 }
@@ -276,6 +324,7 @@ export function withTooltip(state: WidgetState): WidgetState {
       detail: [
         connectionLine,
         ...(detailLine ? [detailLine] : []),
+        formatLimitSyncTooltip(state),
         formatLimitTooltip(state.limits.fiveHour),
         formatLimitTooltip(state.limits.weekly)
       ]
@@ -356,6 +405,44 @@ function formatLimitTooltip(limit: LimitBucket): string {
 
   const reset = limit.resetsAt ? `, resets ${formatResetTime(limit.resetsAt)}` : "";
   return `${limit.label}: ${Math.round(limit.remainingPercent)}% remaining${reset}`;
+}
+
+function formatLimitSyncTooltip(state: WidgetState): string {
+  const source = formatLimitSource(state.limits.source);
+  switch (state.limits.status) {
+    case "refreshing":
+      return `Quota: syncing${source ? ` from ${source}` : ""}`;
+    case "ready":
+      return state.limits.lastUpdatedAt
+        ? `Quota: updated ${formatUpdateTime(state.limits.lastUpdatedAt)}${source ? ` from ${source}` : ""}`
+        : `Quota: ready${source ? ` from ${source}` : ""}`;
+    case "stale":
+      return `Quota: showing cached data${state.limits.error ? ` (${state.limits.error})` : ""}`;
+    case "error":
+      return `Quota: unavailable${state.limits.error ? ` (${state.limits.error})` : ""}`;
+    case "unknown":
+      return "Quota: waiting for usage data";
+  }
+}
+
+function formatLimitSource(source: LimitSource | null): string | null {
+  switch (source) {
+    case "appServer":
+      return "Codex app-server";
+    case "localSession":
+      return "local session";
+    case null:
+      return null;
+  }
+}
+
+function formatUpdateTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "just now";
+  }
+
+  return date.toLocaleTimeString();
 }
 
 function formatResetTime(resetsAt: number): string {

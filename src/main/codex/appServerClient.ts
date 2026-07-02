@@ -11,6 +11,8 @@ import {
   hasCreatingStatusText,
   hasThinkingStatusText,
   hasWorkingStatusText,
+  markRateLimitsProblem,
+  markRateLimitsRefreshing,
   mapStatusToRing,
   normalizeStatusText,
   toThreadSummary,
@@ -159,7 +161,7 @@ export class CodexAppServerController extends EventEmitter {
     await this.resumeThread(threadId);
   }
 
-  async refreshRateLimits(): Promise<void> {
+  async refreshRateLimits(showRefreshing = true): Promise<void> {
     if (this.localRateLimitsActive) {
       return;
     }
@@ -173,15 +175,22 @@ export class CodexAppServerController extends EventEmitter {
       return;
     }
 
+    if (showRefreshing) {
+      this.setState(markRateLimitsRefreshing(this.state, "appServer"));
+    }
     const refresh = (async () => {
       try {
         const result = await rpc.request<RateLimitsResult>("account/rateLimits/read", undefined, 10_000);
         if (this.rpc === rpc && !this.localRateLimitsActive) {
-          this.applyRateLimitState(result);
+          this.applyRateLimitState(result, "appServer");
         }
       } catch (error) {
         if (this.rpc === rpc) {
-          this.emit("diagnostic", `rate limits unavailable: ${error instanceof Error ? error.message : String(error)}`);
+          const message = error instanceof Error ? error.message : String(error);
+          this.emit("diagnostic", `rate limits unavailable: ${message}`);
+          if (!this.localRateLimitsActive) {
+            this.setState(markRateLimitsProblem(this.state, compactError(message), "appServer"));
+          }
         }
       }
     })();
@@ -340,8 +349,8 @@ export class CodexAppServerController extends EventEmitter {
   private handleNotification(method: string, params: unknown): void {
     if (method === "account/rateLimits/updated") {
       if (!this.localRateLimitsActive) {
-        this.applyRateLimitState(params as RateLimitsResult);
-        void this.refreshRateLimits();
+        this.applyRateLimitState(params as RateLimitsResult, "appServer");
+        void this.refreshRateLimits(false);
       }
       return;
     }
@@ -493,7 +502,9 @@ export class CodexAppServerController extends EventEmitter {
     };
     this.localRateLimitsActive = Boolean(snapshot.rateLimits);
     if (snapshot.rateLimits) {
-      next = applyRateLimits(next, snapshot.rateLimits, localRateLimitUpdatedAt(snapshot));
+      next = applyRateLimits(next, snapshot.rateLimits, localRateLimitUpdatedAt(snapshot), "localSession");
+    } else {
+      next = markRateLimitsProblem(next, "Local session has no quota snapshot", "localSession");
     }
     this.selectedThreadId = snapshot.thread.id;
     this.lastLocalSnapshotRevision = revision;
@@ -522,7 +533,7 @@ export class CodexAppServerController extends EventEmitter {
     };
     this.localRateLimitsActive = Boolean(snapshot.rateLimits);
     if (snapshot.rateLimits) {
-      next = applyRateLimits(next, snapshot.rateLimits, localRateLimitUpdatedAt(snapshot));
+      next = applyRateLimits(next, snapshot.rateLimits, localRateLimitUpdatedAt(snapshot), "localSession");
     }
 
     this.selectedThreadId = snapshot.thread.id;
@@ -576,15 +587,20 @@ export class CodexAppServerController extends EventEmitter {
   }
 
   private setState(next: WidgetState): void {
-    this.state = withTooltip({
+    const state = withTooltip({
       ...next,
       revision: this.state.revision + 1
     });
+    if (sameWidgetState(this.state, state)) {
+      return;
+    }
+
+    this.state = state;
     this.emit("state", this.state);
   }
 
-  private applyRateLimitState(result: RateLimitsResult): void {
-    const next = applyRateLimits(this.state, result);
+  private applyRateLimitState(result: RateLimitsResult, source: "appServer" | "localSession"): void {
+    const next = applyRateLimits(this.state, result, new Date().toISOString(), source);
     this.setState(next);
     this.scheduleRateLimitResetRefresh(next);
   }
@@ -772,4 +788,8 @@ function localSnapshotRevision(snapshot: LocalSessionSnapshot): string {
 function localRateLimitUpdatedAt(snapshot: LocalSessionSnapshot): string {
   const timestamp = snapshot.rateLimitsUpdatedAtMs ?? snapshot.updatedAtMs;
   return new Date(timestamp).toISOString();
+}
+
+function sameWidgetState(left: WidgetState, right: WidgetState): boolean {
+  return JSON.stringify({ ...left, revision: 0 }) === JSON.stringify({ ...right, revision: 0 });
 }

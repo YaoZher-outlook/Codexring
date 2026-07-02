@@ -318,6 +318,14 @@ select {
   animation: ring-transition-hop 680ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
 
+.status-ring-transition-notify .status-ring-surface {
+  animation: ring-transition-notify 720ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.status-ring-transition-recover .status-ring-surface {
+  animation: ring-transition-recover 840ms cubic-bezier(0.2, 1.25, 0.35, 1) both;
+}
+
 .status-ring-transition-settle .status-ring-surface {
   animation: ring-transition-settle 620ms ease-out both;
 }
@@ -378,6 +386,23 @@ select {
     inset 0 1px 1px rgb(255 255 255 / calc(var(--bar-alpha) * 0.1));
 }
 
+.limit-track::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+  pointer-events: none;
+  background: linear-gradient(
+    105deg,
+    transparent 0%,
+    transparent 34%,
+    rgb(255 255 255 / calc(var(--bar-alpha) * 0.28)) 48%,
+    transparent 64%,
+    transparent 100%
+  );
+  opacity: 0;
+  transform: translateX(-100%);
+}
+
 .limit-fill {
   position: absolute;
   inset: 0 auto 0 0;
@@ -416,6 +441,38 @@ select {
     rgb(139 146 160 / calc(var(--bar-alpha) * 0.42)) 5px,
     rgb(139 146 160 / calc(var(--bar-alpha) * 0.22)) 5px,
     rgb(139 146 160 / calc(var(--bar-alpha) * 0.22)) 10px
+  );
+}
+
+.bars-zone.limit-sync-refreshing .limit-track::after {
+  opacity: 1;
+  animation: limit-sync-scan 920ms linear infinite;
+}
+
+.bars-zone.limit-sync-refreshing .limit-value {
+  animation: limit-value-pulse 920ms ease-in-out infinite;
+}
+
+.bars-zone.limit-sync-stale .limit-fill {
+  opacity: 0.72;
+  filter: saturate(0.78);
+}
+
+.bars-zone.limit-sync-stale .limit-value {
+  color: rgb(var(--text-muted-rgb) / 0.72);
+}
+
+.bars-zone.limit-sync-error .limit-track {
+  border-color: rgb(var(--bar-danger-rgb) / calc(var(--bar-alpha) * 0.34));
+}
+
+.bars-zone.limit-sync-error .limit-fill {
+  background: repeating-linear-gradient(
+    90deg,
+    rgb(var(--bar-danger-rgb) / calc(var(--bar-alpha) * 0.5)),
+    rgb(var(--bar-danger-rgb) / calc(var(--bar-alpha) * 0.5)) 4px,
+    rgb(var(--bar-danger-rgb) / calc(var(--bar-alpha) * 0.18)) 4px,
+    rgb(var(--bar-danger-rgb) / calc(var(--bar-alpha) * 0.18)) 8px
   );
 }
 
@@ -1632,6 +1689,21 @@ legend {
   100% { transform: translateY(0) scale(1); }
 }
 
+@keyframes ring-transition-notify {
+  0% { opacity: 0.42; transform: scale(0.72); }
+  24% { opacity: 1; transform: scale(1.18); }
+  42% { opacity: 0.42; transform: scale(0.96); }
+  58% { opacity: 1; transform: scale(1.12); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes ring-transition-recover {
+  0% { opacity: 0.3; transform: rotate(-42deg) scale(0.65); }
+  34% { opacity: 1; transform: rotate(18deg) scale(1.28); }
+  62% { transform: rotate(-8deg) scale(0.92); }
+  100% { opacity: 1; transform: rotate(0deg) scale(1); }
+}
+
 @keyframes ring-transition-settle {
   0% { opacity: 0.5; transform: rotate(-24deg) scale(1.18); }
   100% { opacity: 1; transform: rotate(0deg) scale(1); }
@@ -1649,10 +1721,33 @@ legend {
   100% { opacity: 1; transform: rotate(0deg) scale(1); }
 }
 
+@keyframes limit-sync-scan {
+  from {
+    transform: translateX(-100%);
+  }
+
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes limit-value-pulse {
+  0%,
+  100% {
+    opacity: 0.62;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .status-ring-surface,
   .status-ring-main,
-  .status-ring-drop {
+  .status-ring-drop,
+  .bars-zone.limit-sync-refreshing .limit-track::after,
+  .bars-zone.limit-sync-refreshing .limit-value {
     animation-duration: 1ms !important;
     animation-iteration-count: 1 !important;
   }

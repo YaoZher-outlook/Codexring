@@ -11,6 +11,8 @@ export type RingState =
   | "failed";
 
 export type LimitTone = "ok" | "warn" | "danger" | "muted";
+export type LimitSyncStatus = "unknown" | "refreshing" | "ready" | "stale" | "error";
+export type LimitSource = "appServer" | "localSession";
 
 export interface ConnectionInfo {
   status: ConnectionStatus;
@@ -52,6 +54,10 @@ export interface WidgetState {
     fiveHour: LimitBucket;
     weekly: LimitBucket;
     lastUpdatedAt: string | null;
+    refreshStartedAt: string | null;
+    status: LimitSyncStatus;
+    source: LimitSource | null;
+    error: string | null;
   };
   tooltip: WidgetTooltip;
 }
